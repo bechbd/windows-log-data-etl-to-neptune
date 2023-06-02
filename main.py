@@ -17,6 +17,8 @@ import logging
 
 PRINT_FREQUENCY = 5000000
 BREAK_ON_LOOP = False
+START_MILLIS = 150880
+STOP_MILLIS = 2557050
 
 input_path=f"./input"
 output_path=f"./output"
@@ -59,7 +61,7 @@ def process_auth_csv(filename):
             if len(parts) != 9:                    
                 logger.warning("We have a bad line, not enough parts")
                 parts=None
-            if int(parts[0]) >150880 and int(parts[0])<2557047:
+            if int(parts[0]) >START_MILLIS and int(parts[0])<STOP_MILLIS:
                 if parts and not '?' in parts[1] and not '?' in parts[2] and not '?' in parts[3] and not '?' in parts[4]:
                     users.add(parts[1])
                     users.add(parts[2])                
