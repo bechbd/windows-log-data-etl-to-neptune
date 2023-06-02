@@ -128,6 +128,9 @@ ENV/
 env.bak/
 venv.bak/
 
+output/
+input/
+
 # Spyder project settings
 .spyderproject
 .spyproject
@@ -157,4 +160,8 @@ cython_debug/
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+<<<<<<< HEAD
 #.idea/
+=======
+#.idea/
+>>>>>>> initial commit
