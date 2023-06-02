@@ -15,10 +15,13 @@ import time
 import os
 import logging
 
-PRINT_FREQUENCY = 5000000
+PRINT_FREQUENCY = 1000000
 BREAK_ON_LOOP = False
-START_MILLIS = 150880
-STOP_MILLIS = 2557050
+START_MILLIS = 150000
+STOP_MILLIS = 635020
+
+#START_MILLIS = 0
+#STOP_MILLIS = 1000000
 
 input_path=f"./input"
 output_path=f"./output"
@@ -27,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 computers = set()
 users = set()
-process = set()
+executables = set()
 
 def validate_line_parts(line, expected_num_fields):
     if '?' in line:
@@ -123,23 +126,47 @@ def process_auth_csv(filename):
                         '~to': parts[4],
                         'login_id': login_id,
                         'time': parts[0]
-                    })                
+                    })    
+                    login_edges.append({
+                        '~id': uuid.uuid4(), 
+                        '~label': 'requested_from', 
+                        '~from': parts[1], 
+                        '~to': parts[3],
+                        'login_id': login_id,
+                        'time': parts[0]
+                    }) 
+                    login_edges.append({
+                        '~id': uuid.uuid4(), 
+                        '~label': 'requested_to', 
+                        '~from': parts[2], 
+                        '~to': parts[4],
+                        'login_id': login_id,
+                        'time': parts[0]
+                    })             
                 else:
                     bad +=1                             
                 
                 if count%PRINT_FREQUENCY==0:
                     logger.info(f'Processing row {count} of {filename}')
-                    df = pd.DataFrame(login_event)
-                    df = df.rename(columns={"success": "success:Boolean", "time": "time:Long"})        
-                    write_csv(df, 'login.csv')                    
-                    login_event=[] 
-                    df = pd.DataFrame(login_edges)        
-                    write_csv(df, 'login_edges.csv')                                  
+                    __output_login_files(login_event, login_edges)
+                    login_event=[]                                
                     login_edges=[] 
                     if BREAK_ON_LOOP:
                         break
+        
+        __output_login_files(login_event, login_edges)
         logger.info(f"{bad} lines out of {count} ({(bad/count)*100}%) have missing data")
-       
+
+def __output_login_files(login_event, login_edges):
+    df = pd.DataFrame(login_event)
+    df = df.rename(columns={"success": "success:Boolean", "time": "time:Long"})        
+    write_csv(df, 'login.csv')      
+    df = pd.DataFrame(login_edges)      
+    df = df.rename(columns={"time": "time:Long"})    
+    write_csv(df, 'login_edges.csv')   
+
+
+# DO NOT USE This function is not up to date with the latest data model, left here for future work
 def process_dns_csv(filename):
     logger.info(f"Processing {filename}")
     count=0    
@@ -175,42 +202,75 @@ def process_dns_csv(filename):
 def process_proc_csv(filename):
     logger.info(f"Processing {filename}")
     count=0
-    data=[] 
+    process=[] 
+    process_edges=[]
     with open(f"{input_path}/{filename}", 'r') as input_file:
         for line in input_file:
             count += 1
-            parts = validate_line_parts(line, 5)
-            if parts:
-                users.add(parts[1])
-                computers.add(parts[2])
-                process.add(parts[3])
-                '''
-                0 time,
-                1 user@domain,
-                2 computer,
-                3 process name,
-                4 start/end'''                
+            parts = validate_line_parts(line, 5)            
+            if int(parts[0]) >START_MILLIS and int(parts[0])<STOP_MILLIS:
+                if parts:
+                    users.add(parts[1])
+                    computers.add(parts[2])
+                    executable_id=f"{parts[3]}__{parts[2]}"
+                    executables.add(executable_id)
+                    '''
+                    0 time,
+                    1 user@domain,
+                    2 computer,
+                    3 process name,
+                    4 start/end'''                
+                    
+                    # Create Login Event
+                    process_id = uuid.uuid4()
+                    process.append({
+                        '~id': process_id, 
+                        '~label': 'process', 
+                        'start_time': parts[0] if parts[4].lower()=='start' else None ,  
+                        'start_user': parts[1] if parts[4].lower()=='start' else None , 
+                        'end_time': parts[0] if parts[4].lower()=='end' else None , 
+                        'end_user': parts[1] if parts[4].lower()=='end' else None,
+                        'process_name': parts[3],
+                        'computer': parts[2]
+                    })
+                    # Add started and ended edges
+                    process_edges.append({
+                        '~id': uuid.uuid4(),
+                        '~label': 'started' if parts[4].lower()=='start' else 'ended' , 
+                        '~from': process_id, 
+                        '~to': parts[2], 
+                        'time': parts[0]
+                    })
+                    
+                    
+                    # Add execute_start and execute_end edges
+                    process_edges.append({
+                        '~id': uuid.uuid4(),
+                        '~label': 'execute_start' if parts[4].lower()=='start' else 'execute_end' , 
+                        '~from': process_id, 
+                        '~to': executable_id, 
+                        'time': parts[0]
+                    })
                 
-                data.append({
-                    '~id': f"{parts[1]}_{parts[2]}_{parts[3]}_{parts[0]}", 
-                    '~label': 'run_on', 
-                    '~from': parts[3], 
-                    '~to': parts[2], 
-                    'start_time': parts[0] if parts[4].lower()=='start' else None ,  
-                    'start_user': parts[1] if parts[4].lower()=='start' else None , 
-                    'end_time': parts[0] if parts[4].lower()=='end' else None , 
-                    'end_user': parts[1] if parts[4].lower()=='end' else None
-                })
-            
-            if count%PRINT_FREQUENCY==0:
-                logger.info(f'Processing row {count} of {filename}')                
-                df = pd.DataFrame(data)     
-                df = df.rename(columns={"start_time": "start_time:Long", "end_time": "end_time:Long"})  
-                write_csv(df, 'run_on.csv')                            
-                data=[]                 
-                if BREAK_ON_LOOP:
-                    break
+                if count%PRINT_FREQUENCY==0:
+                    logger.info(f'Processing row {count} of {filename}')                
+                    __output_process_files(process, process_edges)                                          
+                    process=[]                 
+                    process_edges = []
+                    if BREAK_ON_LOOP:
+                        break
+                 
+        __output_process_files(process, process_edges)      
 
+def __output_process_files(process, process_edges):
+    df = pd.DataFrame(process)     
+    df = df.rename(columns={"start_time": "start_time:Long", "end_time": "end_time:Long"})  
+    write_csv(df, 'process.csv')      
+    df = pd.DataFrame(process_edges)     
+    df = df.rename(columns={"time": "time:Long"})  
+    write_csv(df, 'process_edges.csv')   
+
+# DO NOT USE This function is not up to date with the latest data model, left here for future work
 def process_flows_csv(filename):
     logger.info(f"Processing {filename}")
     count=0
@@ -258,6 +318,7 @@ def process_flows_csv(filename):
                 if BREAK_ON_LOOP:
                     break
 
+# DO NOT USE This function is not up to date with the latest data model, left here for future work
 def process_redteam_csv(filename):
     logger.info(f"Processing {filename}")
     count=0
@@ -322,12 +383,29 @@ def output_computers():
 def output_users():
     df = pd.DataFrame(users, columns=['~id'])
     df['~label']='user'
+    df['username'] = df.apply(lambda row: __get_username(row['~id']), axis=1)
+    df['domain'] = df.apply(lambda row: __get_domain(row['~id']), axis=1)
     write_csv(df, 'users.csv')   
 
-def output_processes():
-    df = pd.DataFrame(process, columns=['~id'])
-    df['~label']='process'
-    write_csv(df, 'processes.csv')   
+def __get_username(name):
+    parts = name.split("$@")
+    
+    return parts[0]
+
+def __get_domain(name):
+    domain = None
+    parts = name.split("$@")
+    if len(parts) == 2:
+        domain = parts[1]
+    
+    return domain
+  
+def output_executables():
+    df = pd.DataFrame(executables, columns=['~id'])
+    df['~label']='executable'
+    df['process_name'] = df.apply(lambda row: row['~id'].split('__')[0], axis=1)
+    df['computer'] = df.apply(lambda row: row['~id'].split('__')[1], axis=1)
+    write_csv(df, 'executables.csv')   
 
 def main():
     # Remove all existing files
@@ -336,18 +414,15 @@ def main():
         os.remove(os.path.join(output_path, f))
     tic = time.perf_counter()       
     #process_dns_csv('dns.txt')
-    process_auth_csv('auth.txt')
-    #process_proc_csv('proc.txt')
     #process_flows_csv('flows.txt')
     #process_redteam_csv('redteam.txt')
+    process_auth_csv('auth.txt')
+    process_proc_csv('proc.txt')
     toc = time.perf_counter()
     logger.info(f"Processing files in {(toc - tic)/60:0.4f} mins")
     output_computers()
     output_users()
-    output_processes()
-    
-
-
+    output_executables()    
     
 if __name__ == "__main__":
     main()
