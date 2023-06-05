@@ -22,8 +22,10 @@ def validate_line_parts(line, expected_num_fields):
 
 def process_redteam_csv(filename, client):
     logger.info(f"Processing {filename}")
+    count=0
     with open(f"{input_path}/{filename}", 'r') as input_file:
         for line in input_file:
+            count += 1
             parts = validate_line_parts(line, 4)
             if parts:
                 '''
@@ -33,16 +35,17 @@ def process_redteam_csv(filename, client):
                 3 destination computer
                 '''
                 df = wr.neptune.execute_opencypher(client, f"""
-                    MATCH p=(computer)-[:login_from]->(r:login)<-[:login_by]-(user)
+                    MATCH (computer)-[:login_from]->(r:login)<-[:login_by]-(user)
                     where r.time={parts[0]} and id(computer)='{parts[2]}' and id(user)='{parts[1]}'
-                    RETURN p
+                    RETURN id(r) as id
                     """)
                 if df.shape[0] == 1:
-                    f = None
+                    query = "MATCH (l:login {`~id`:'" + df.loc[0]['id'] + "' }) "
+                    query += "MERGE (red:redteam {`~id`: 'redteam_" + str(count) + "', time: " + str(parts[0]) + "}) "
+                    query += "MERGE (red)-[:redteam_event {time: " + str(parts[0]) + "}]->(l)"
+                    df = wr.neptune.execute_opencypher(client, query)
                 else:
                     logger.warning(f"No login found for {line}")
-            #print(line)
-
 
 def main():
     url='' # The Neptune Cluster endpoint
